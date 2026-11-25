@@ -41,6 +41,10 @@ display:
     id: unicorn
     update_interval: 50ms   # 20 fps; the lambda runs on every update
     brightness: 0.4
+    auto_brightness:
+      dark_level: 25
+      bright_level: 800
+      min_brightness: 25%
     lambda: |-
       auto now = id(ha_time).now();
       if (!now.is_valid()) {
@@ -72,6 +76,16 @@ light:
     default_transition_length: 300ms
     restore_mode: RESTORE_DEFAULT_ON
 
+switch:
+  - platform: template
+    name: Auto brightness
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(unicorn).set_auto_brightness(true);
+    turn_off_action:
+      - lambda: id(unicorn).set_auto_brightness(false);
+
 number:
   - platform: template
     name: Volume
@@ -94,6 +108,12 @@ sensor:
     accuracy_decimals: 0
     update_interval: 5s
     lambda: return id(unicorn).get_light_level() * 100.0f / 4095.0f;
+  - platform: template
+    name: Ambient factor
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: return id(unicorn).get_ambient_factor() * 100.0f;
 
 binary_sensor:
   - platform: gpio
