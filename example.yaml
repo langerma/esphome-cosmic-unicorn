@@ -88,10 +88,11 @@ switch:
 
 number:
   - platform: template
+    id: volume_number
     name: Volume
     min_value: 0
     max_value: 100
-    step: 5
+    step: 10
     unit_of_measurement: "%"
     optimistic: true
     restore_value: true
@@ -100,6 +101,15 @@ number:
       - output.set_level:
           id: unicorn_volume
           level: !lambda return x / 100.0;
+      # short beep so the new level is audible (not for the restored value at boot)
+      - if:
+          condition:
+            lambda: return millis() > 10000;
+          then:
+            - cosmic_unicorn.play_tone:
+                frequency: 660
+                duration: 80ms
+                waveform: sine
 
 sensor:
   - platform: template
@@ -148,3 +158,13 @@ binary_sensor:
     pin: { number: 26, inverted: true, mode: { input: true, pullup: true } }
     on_press:
       - light.dim_relative: { id: matrix_light, relative_brightness: -10% }
+  - platform: gpio
+    id: btn_volume_up
+    pin: { number: 7, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - number.increment: { id: volume_number, cycle: false }
+  - platform: gpio
+    id: btn_volume_down
+    pin: { number: 8, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - number.decrement: { id: volume_number, cycle: false }
