@@ -88,7 +88,8 @@ The optional third argument scales the speed. Effects keep their own frame buffe
 even if the lambda clears the screen. All per-pixel work is integer math, because the RP2040 has no FPU.
 
 [`example.yaml`](example.yaml) puts the clock and all effects into a **Mode** select, adds an **Effect speed** slider,
-and gives every button a short animation (B/C switch modes, brightness and volume show a level bar).
+and gives every button a short animation (B/C switch modes, brightness and volume show a level bar). Which
+animation A–D play is configurable from Home Assistant ("Button X animation" config selects).
 
 ### Actions
 

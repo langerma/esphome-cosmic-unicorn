@@ -49,6 +49,19 @@ script:
       - lambda: |-
           id(anim_kind) = kind;
           id(anim_start) = millis();
+  # plays the animation chosen in a "Button X animation" select (index into its options)
+  - id: play_choice
+    mode: restart
+    parameters:
+      choice: int
+    then:
+      - lambda: |-
+          // None, Ripple, Confetti, Rainbow wipe, Spinner, Ring -> animation kind
+          static const int KIND[] = {0, 1, 2, 3, 4, 9};
+          if (choice > 0 && choice < 6) {
+            id(anim_kind) = KIND[choice];
+            id(anim_start) = millis();
+          }
 
 font:
   - file: "gfonts://Silkscreen"
@@ -233,6 +246,43 @@ select:
       - Circles
       - Aurora
 
+  - platform: template
+    id: anim_a
+    name: Button A animation
+    icon: mdi:gesture-tap-button
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: Ripple
+    options: [None, Ripple, Confetti, Rainbow wipe, Spinner, Ring]
+  - platform: template
+    id: anim_b
+    name: Button B animation
+    icon: mdi:gesture-tap-button
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: Confetti
+    options: [None, Ripple, Confetti, Rainbow wipe, Spinner, Ring]
+  - platform: template
+    id: anim_c
+    name: Button C animation
+    icon: mdi:gesture-tap-button
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: Rainbow wipe
+    options: [None, Ripple, Confetti, Rainbow wipe, Spinner, Ring]
+  - platform: template
+    id: anim_d
+    name: Button D animation
+    icon: mdi:gesture-tap-button
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_option: Spinner
+    options: [None, Ripple, Confetti, Rainbow wipe, Spinner, Ring]
+
 switch:
   - platform: template
     name: Auto brightness
@@ -298,7 +348,9 @@ binary_sensor:
     name: Button A
     pin: { number: 0, inverted: true, mode: { input: true, pullup: true } }
     on_press:
-      - script.execute: { id: play_anim, kind: 1 }
+      - script.execute:
+          id: play_choice
+          choice: !lambda return id(anim_a).active_index().value_or(0);
       - cosmic_unicorn.play_tone:
           frequency: 880
           duration: 120ms
@@ -307,19 +359,25 @@ binary_sensor:
     name: Button B
     pin: { number: 1, inverted: true, mode: { input: true, pullup: true } }
     on_press:
-      - script.execute: { id: play_anim, kind: 2 }
+      - script.execute:
+          id: play_choice
+          choice: !lambda return id(anim_b).active_index().value_or(0);
       - select.previous: { id: display_mode, cycle: true }
   - platform: gpio
     name: Button C
     pin: { number: 3, inverted: true, mode: { input: true, pullup: true } }
     on_press:
-      - script.execute: { id: play_anim, kind: 3 }
+      - script.execute:
+          id: play_choice
+          choice: !lambda return id(anim_c).active_index().value_or(0);
       - select.next: { id: display_mode, cycle: true }
   - platform: gpio
     name: Button D
     pin: { number: 6, inverted: true, mode: { input: true, pullup: true } }
     on_press:
-      - script.execute: { id: play_anim, kind: 4 }
+      - script.execute:
+          id: play_choice
+          choice: !lambda return id(anim_d).active_index().value_or(0);
   - platform: gpio
     name: Button Sleep
     pin: { number: 27, inverted: true, mode: { input: true, pullup: true } }
