@@ -31,6 +31,25 @@ time:
   - platform: homeassistant
     id: ha_time
 
+# Button animations: which one is playing and when it started
+globals:
+  - id: anim_kind     # 0 none, 1-4 A-D, 5/6 brightness +/-, 7/8 volume +/-, 9 wake
+    type: int
+    initial_value: '0'
+  - id: anim_start
+    type: uint32_t
+    initial_value: '0'
+
+script:
+  - id: play_anim
+    mode: restart
+    parameters:
+      kind: int
+    then:
+      - lambda: |-
+          id(anim_kind) = kind;
+          id(anim_start) = millis();
+
 font:
   - file: "gfonts://Silkscreen"
     id: pixel
@@ -46,18 +65,134 @@ display:
       bright_level: 800
       min_brightness: 25%
     lambda: |-
-      auto now = id(ha_time).now();
-      if (!now.is_valid()) {
-        it.print(16, 16, id(pixel), Color(80, 80, 80), TextAlign::CENTER, "...");
+      const uint32_t ms = millis();
+      auto hsv = [](float h, float s, float v) -> Color {
+        h = fmodf(h, 1.0f);
+        if (h < 0) h += 1.0f;
+        v = v < 0 ? 0 : (v > 1 ? 1 : v);
+        int i = (int) (h * 6);
+        float f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+        float r, g, b;
+        switch (i % 6) {
+          case 0: r = v; g = t; b = p; break;
+          case 1: r = q; g = v; b = p; break;
+          case 2: r = p; g = v; b = t; break;
+          case 3: r = p; g = q; b = v; break;
+          case 4: r = t; g = p; b = v; break;
+          default: r = v; g = p; b = q; break;
+        }
+        return Color(r * 255, g * 255, b * 255);
+      };
+      auto scale = [](Color c, float f) -> Color { return Color(c.r * f, c.g * f, c.b * f); };
+
+      // ---- button animation state ----
+      static const uint32_t DUR[] = {0, 700, 900, 900, 1000, 1500, 1500, 1500, 1500, 900};
+      const int kind = id(anim_kind);
+      const uint32_t el = ms - id(anim_start);
+      const bool active = kind > 0 && kind <= 9 && el < DUR[kind];
+      const float p = active ? (float) el / DUR[kind] : 1.0f;
+
+      // ---- brightness / volume: icon + level bar instead of the clock ----
+      if (active && kind >= 5 && kind <= 8) {
+        const float fade = el > 1200 ? (1500 - el) / 300.0f : 1.0f;
+        const bool is_vol = kind >= 7;
+        const bool up = kind == 5 || kind == 7;
+        float level;
+        if (is_vol) {
+          level = id(volume_number).state / 100.0f;
+        } else {
+          auto &v = id(matrix_light).remote_values;
+          level = v.is_on() ? v.get_brightness() : 0.0f;
+        }
+        const Color fg = scale(is_vol ? Color(60, 200, 255) : Color(255, 190, 40), fade);
+        if (is_vol) {
+          it.filled_rectangle(6, 6, 4, 6, fg);             // speaker
+          it.filled_triangle(9, 9, 14, 4, 14, 14, fg);
+          if (level > 0.0f) it.vertical_line(17, 7, 5, fg);  // sound waves
+          if (level > 0.5f) it.vertical_line(20, 5, 9, fg);
+        } else {
+          it.filled_circle(13, 9, 3, fg);                   // sun
+          for (int k = 0; k < 8; k++) {
+            float a = k * M_PI / 4;
+            it.draw_pixel_at(13 + roundf(cosf(a) * 6), 9 + roundf(sinf(a) * 6), fg);
+          }
+        }
+        it.horizontal_line(23, 9, 5, fg);                   // + / -
+        if (up) it.vertical_line(25, 7, 5, fg);
+        it.rectangle(2, 21, 28, 7, scale(Color(70, 70, 70), fade));
+        const int w = (int) roundf(level * 26);
+        if (w > 0) it.filled_rectangle(3, 22, w, 5, fg);
         return;
       }
-      // hour on top, minute below, colour slowly cycling
-      uint32_t t = millis() / 40;
-      Color c = Color(128 + 127 * sinf(t * 0.02f), 128 + 127 * sinf(t * 0.02f + 2.1f), 128 + 127 * sinf(t * 0.02f + 4.2f));
-      it.strftime(16, 2, id(pixel), c, TextAlign::TOP_CENTER, "%H", now);
-      it.strftime(16, 16, id(pixel), c, TextAlign::TOP_CENTER, "%M", now);
-      // seconds as a dot running along the bottom row
-      it.draw_pixel_at(now.second * 32 / 60, 31, Color(255, 255, 255));
+
+      // ---- mode: clock or one of the built-in effects ----
+      auto mode_idx = id(display_mode).active_index();
+      const int mode = mode_idx.has_value() ? (int) *mode_idx : 0;
+      auto now = id(ha_time).now();
+      if (mode > 0) {
+        id(unicorn).render_effect(it, mode - 1, id(effect_speed).state);
+      } else if (!now.is_valid()) {
+        it.print(16, 16, id(pixel), Color(80, 80, 80), TextAlign::CENTER, "...");
+      } else {
+        // hour on top, minute below, colour slowly cycling
+        uint32_t t = ms / 40;
+        Color c = Color(128 + 127 * sinf(t * 0.02f), 128 + 127 * sinf(t * 0.02f + 2.1f), 128 + 127 * sinf(t * 0.02f + 4.2f));
+        it.strftime(16, 2, id(pixel), c, TextAlign::TOP_CENTER, "%H", now);
+        it.strftime(16, 16, id(pixel), c, TextAlign::TOP_CENTER, "%M", now);
+        // seconds as a dot running along the bottom row
+        it.draw_pixel_at(now.second * 32 / 60, 31, Color(255, 255, 255));
+      }
+
+      if (!active)
+        return;
+
+      // ---- short effects on top of the clock ----
+      switch (kind) {
+        case 1: {  // A: two rings rippling out from the centre
+          const int r = p * 24;
+          it.circle(16, 16, r, hsv(0.5f, 0.8f, 1 - p));
+          if (r > 4) it.circle(16, 16, r - 4, hsv(0.58f, 0.8f, (1 - p) * 0.6f));
+          break;
+        }
+        case 2: {  // B: confetti burst
+          for (int i = 0; i < 48; i++) {
+            uint32_t h = (uint32_t) (i + 1) * 2654435761u ^ id(anim_start);
+            h ^= h >> 13;
+            h *= 0x5bd1e995u;
+            h ^= h >> 15;
+            const float ang = (h & 0xffff) / 65536.0f * 2 * M_PI;
+            const float dist = (6 + ((h >> 16) & 0xff) / 255.0f * 14) * p;
+            it.draw_pixel_at(16 + roundf(cosf(ang) * dist), 16 + roundf(sinf(ang) * dist),
+                             hsv(((h >> 24) & 0xff) / 255.0f, 0.7f, 1 - p));
+          }
+          break;
+        }
+        case 3: {  // C: diagonal rainbow wipe
+          const float pos = p * 78 - 8;
+          for (int y = 0; y < 32; y++) {
+            for (int x = 0; x < 32; x++) {
+              const float d = fabsf(x + y - pos);
+              if (d < 8) it.draw_pixel_at(x, y, hsv((x + y) / 62.0f, 1, 1 - d / 8));
+            }
+          }
+          break;
+        }
+        case 4: {  // D: three-armed spinner
+          const float a = p * 3 * M_PI;
+          for (int k = 0; k < 3; k++) {
+            const float b = a + k * 2.0944f;
+            it.line(16, 16, 16 + roundf(cosf(b) * 15), 16 + roundf(sinf(b) * 15), hsv(k / 3.0f + p, 1, 1 - p));
+          }
+          break;
+        }
+        case 9: {  // Zzz (turning on): white ring opening up
+          const int r = p * 23;
+          const Color c = scale(Color(255, 255, 255), 1 - p);
+          it.circle(16, 16, r, c);
+          it.circle(16, 16, r + 1, c);
+          break;
+        }
+      }
 
 output:
   - platform: cosmic_unicorn
@@ -76,6 +211,28 @@ light:
     default_transition_length: 300ms
     restore_mode: RESTORE_DEFAULT_ON
 
+select:
+  - platform: template
+    id: display_mode
+    name: Mode
+    icon: mdi:animation-play
+    optimistic: true
+    restore_value: true
+    # order matters: index 0 is the clock, the rest map to the component's effects
+    options:
+      - Clock
+      - Plasma
+      - Fire
+      - Lava lamp
+      - Snow
+      - Rain
+      - Starfield
+      - Stars
+      - Game of Life
+      - Lines
+      - Circles
+      - Aurora
+
 switch:
   - platform: template
     name: Auto brightness
@@ -87,6 +244,17 @@ switch:
       - lambda: id(unicorn).set_auto_brightness(false);
 
 number:
+  - platform: template
+    id: effect_speed
+    name: Effect speed
+    icon: mdi:speedometer
+    min_value: 0.25
+    max_value: 3
+    step: 0.25
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    mode: slider
   - platform: template
     id: volume_number
     name: Volume
@@ -130,6 +298,7 @@ binary_sensor:
     name: Button A
     pin: { number: 0, inverted: true, mode: { input: true, pullup: true } }
     on_press:
+      - script.execute: { id: play_anim, kind: 1 }
       - cosmic_unicorn.play_tone:
           frequency: 880
           duration: 120ms
@@ -137,34 +306,51 @@ binary_sensor:
   - platform: gpio
     name: Button B
     pin: { number: 1, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - script.execute: { id: play_anim, kind: 2 }
+      - select.previous: { id: display_mode, cycle: true }
   - platform: gpio
     name: Button C
     pin: { number: 3, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - script.execute: { id: play_anim, kind: 3 }
+      - select.next: { id: display_mode, cycle: true }
   - platform: gpio
     name: Button D
     pin: { number: 6, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - script.execute: { id: play_anim, kind: 4 }
   - platform: gpio
     name: Button Sleep
     pin: { number: 27, inverted: true, mode: { input: true, pullup: true } }
     on_press:
       - light.toggle: matrix_light
+      - if:
+          condition:
+            light.is_on: matrix_light
+          then:
+            - script.execute: { id: play_anim, kind: 9 }
   - platform: gpio
     id: btn_brightness_up
     pin: { number: 21, inverted: true, mode: { input: true, pullup: true } }
     on_press:
       - light.dim_relative: { id: matrix_light, relative_brightness: 10% }
+      - script.execute: { id: play_anim, kind: 5 }
   - platform: gpio
     id: btn_brightness_down
     pin: { number: 26, inverted: true, mode: { input: true, pullup: true } }
     on_press:
       - light.dim_relative: { id: matrix_light, relative_brightness: -10% }
+      - script.execute: { id: play_anim, kind: 6 }
   - platform: gpio
     id: btn_volume_up
     pin: { number: 7, inverted: true, mode: { input: true, pullup: true } }
     on_press:
       - number.increment: { id: volume_number, cycle: false }
+      - script.execute: { id: play_anim, kind: 7 }
   - platform: gpio
     id: btn_volume_down
     pin: { number: 8, inverted: true, mode: { input: true, pullup: true } }
     on_press:
       - number.decrement: { id: volume_number, cycle: false }
+      - script.execute: { id: play_anim, kind: 8 }

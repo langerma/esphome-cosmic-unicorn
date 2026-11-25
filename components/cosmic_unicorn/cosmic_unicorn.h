@@ -8,6 +8,7 @@
 #include "esphome/components/output/float_output.h"
 
 #include "cosmic_unicorn_driver.hpp"
+#include "cosmic_unicorn_effects.h"
 
 namespace esphome::cosmic_unicorn {
 
@@ -60,6 +61,15 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
   void play_tone(float frequency, uint32_t duration_ms, ToneWaveform waveform = ToneWaveform::SQUARE);
   void stop_sound();
 
+  /// Draw one frame of a built-in full-screen effect (see EffectRenderer::Effect for the order:
+  /// Plasma, Fire, Lava lamp, Snow, Rain, Starfield, Stars, Game of Life, Lines, Circles, Aurora).
+  /// Call it first in the display lambda; anything drawn afterwards goes on top.
+  void render_effect(display::Display &it, size_t effect, float speed = 1.0f) {
+    this->effects_.render(it, effect, speed);
+  }
+  static size_t effect_count() { return EffectRenderer::effect_count(); }
+  static const char *effect_name(size_t effect) { return EffectRenderer::effect_name(effect); }
+
   /// Read a button directly (true = pressed). Pin numbers as in pimoroni::CosmicUnicorn::SWITCH_*.
   bool is_pressed(uint8_t pin) { return this->unicorn_.is_pressed(pin); }
 
@@ -73,6 +83,7 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
   void update_ambient_();
 
   pimoroni::CosmicUnicorn unicorn_;
+  EffectRenderer effects_;
   // shadow framebuffer: drawing happens here, then the whole frame is pushed at once
   // so the panel never shows a half-drawn (e.g. just cleared) frame
   uint8_t frame_[HEIGHT][WIDTH][3]{};

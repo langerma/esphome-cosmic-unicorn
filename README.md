@@ -17,6 +17,8 @@ Every pixel is full RGB with 14-bit gamma-corrected brightness, done by the PIO 
 - speaker: `cosmic_unicorn.play_tone` / `cosmic_unicorn.stop_sound` actions (tones from Pimoroni's synth)
 - light sensor: `id(unicorn).get_light_level()` (0–4095), e.g. in a template sensor
 - auto brightness from the light sensor, on the device (see below)
+- 11 built-in full-screen effects (Plasma, Fire, Lava lamp, Snow, Rain, Starfield, Stars, Game of Life, Lines,
+  Circles, Aurora), with afterglow trails, drawn with `id(unicorn).render_effect(it, index, speed)`
 - buttons: plain `gpio` binary sensors (pins below)
 - the PIO block is picked at runtime, so it coexists with the Pico W's Wi-Fi driver (which also uses a PIO)
 
@@ -69,6 +71,24 @@ in evening lamp light, and about 1600 with a phone flashlight right in front of 
 the example to find good levels for your room. If your unit reads inverted, set `dark_level` above `bright_level`.
 
 Global brightness is applied after gamma at 16-bit precision, so colours stay clean at low brightness.
+
+### Effects
+
+```yaml
+display:
+  - platform: cosmic_unicorn
+    id: unicorn
+    lambda: |-
+      id(unicorn).render_effect(it, 0);   // 0 = Plasma; anything drawn afterwards goes on top
+```
+
+Index order: 0 Plasma, 1 Fire, 2 Lava lamp, 3 Snow, 4 Rain, 5 Starfield, 6 Stars, 7 Game of Life, 8 Lines,
+9 Circles, 10 Aurora (`CosmicUnicornDisplay::effect_name(i)` and `effect_count()` give names and the count).
+The optional third argument scales the speed. Effects keep their own frame buffer, so trails and afterglow work
+even if the lambda clears the screen. All per-pixel work is integer math, because the RP2040 has no FPU.
+
+[`example.yaml`](example.yaml) puts the clock and all effects into a **Mode** select, adds an **Effect speed** slider,
+and gives every button a short animation (B/C switch modes, brightness and volume show a level bar).
 
 ### Actions
 
