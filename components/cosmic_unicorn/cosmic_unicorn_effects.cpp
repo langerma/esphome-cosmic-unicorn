@@ -14,7 +14,8 @@
 namespace esphome::cosmic_unicorn {
 
 static const char *const EFFECT_NAMES[] = {
-    "Plasma", "Fire", "Lava lamp", "Snow", "Rain", "Starfield", "Stars", "Game of Life", "Lines", "Circles", "Aurora",
+    "Plasma", "Fire",    "Lava lamp", "Snow",   "Rain",           "Starfield",
+    "Stars",  "Game of Life", "Lines", "Circles", "Aurora", "Super computer",
 };
 
 const char *EffectRenderer::effect_name(size_t index) {
@@ -228,6 +229,9 @@ void EffectRenderer::render(display::Display &it, size_t effect, float speed) {
       break;
     case AURORA:
       this->aurora_(this->time_);
+      break;
+    case SUPER_COMPUTER:
+      this->super_computer_(dt);
       break;
   }
   this->reset_ = false;
@@ -620,6 +624,48 @@ void EffectRenderer::aurora_(float t) {
       // the top of the curtain turns violet
       const uint8_t h = d < -3 ? hue + std::min(-d * 6, 110) : hue;
       this->set_(x, y, hsv8(h, 220, std::min(v, 255)));
+    }
+  }
+}
+
+// Super computer: every LED blinks amber on its own slightly random cycle, like the
+// blinkenlights of a movie super computer in the eighties. Port of Pimoroni's
+// "eighties super computer" example (pimoroni-pico, MIT): each LED is lit for the first
+// 30% of its lifetime, fades out until 50%, then stays dark until the cycle restarts.
+void EffectRenderer::super_computer_(float dt) {
+  static const Color AMBER(230, 150, 0);
+  auto new_life = []() -> uint16_t { return 1000 + xorshift() % 100; };  // 1.0 .. 1.1 cycles
+  if (this->reset_) {
+    for (int y = 0; y < H; y++)
+      for (int x = 0; x < W; x++) {
+        this->sc_life_[y][x] = new_life();
+        this->sc_age_[y][x] = (uint16_t) ((xorshift() % 1000) * this->sc_life_[y][x] / 1000);
+      }
+    this->sc_acc_ = 0;
+  }
+  // the original advances 0.025 of a cycle per frame; about one cycle per 1.1 s
+  this->sc_acc_ += dt * 900.0f;
+  const int step = (int) this->sc_acc_;
+  this->sc_acc_ -= step;
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      uint16_t &age = this->sc_age_[y][x];
+      uint16_t &life = this->sc_life_[y][x];
+      age += step;
+      if (age >= life) {
+        age = age % life;
+        life = new_life();
+      }
+      const int on_end = life * 3 / 10, fade_end = life / 2;
+      if (age < on_end) {
+        this->set_(x, y, AMBER);
+      } else if (age < fade_end) {
+        // linear fade over the 30% .. 50% window (the original's (0.5L - age) * 5)
+        const int f = (fade_end - age) * 255 / (fade_end - on_end);
+        this->set_(x, y, scale8(AMBER, f));
+      } else {
+        this->set_(x, y, Color(0, 0, 0));
+      }
     }
   }
 }

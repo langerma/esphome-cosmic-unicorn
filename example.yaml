@@ -412,6 +412,7 @@ select:
       - Lines
       - Circles
       - Aurora
+      - Super computer
 
   - platform: template
     id: anim_a

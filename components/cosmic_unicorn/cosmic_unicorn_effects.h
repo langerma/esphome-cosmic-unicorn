@@ -10,6 +10,7 @@
 namespace esphome::cosmic_unicorn {
 
 /// Full-screen animated effects for a 32x32 RGB matrix.
+/// Super computer is based on Pimoroni's "eighties super computer" example (pimoroni-pico, MIT).
 ///
 /// Effects draw into an internal "glow" buffer that persists between frames
 /// and fades out over time, which gives trails and afterglow. The result is
@@ -32,6 +33,7 @@ class EffectRenderer {
     LINES,
     CIRCLES,
     AURORA,
+    SUPER_COMPUTER,
     EFFECT_COUNT,
   };
 
@@ -64,6 +66,7 @@ class EffectRenderer {
   void lines_(float t, float dt);
   void circles_(float t, float dt);
   void aurora_(float t);
+  void super_computer_(float dt);
 
   size_t last_effect_{SIZE_MAX};
   bool reset_{true};
@@ -85,6 +88,10 @@ class EffectRenderer {
   uint32_t gen_{0};
   uint32_t hist_[4]{};
   int stuck_{0};
+  // super computer: per-LED age and lifetime in 1/1000 of a cycle
+  uint16_t sc_age_[H][W]{};
+  uint16_t sc_life_[H][W]{};
+  float sc_acc_{0};
 };
 
 }  // namespace esphome::cosmic_unicorn
