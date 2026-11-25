@@ -21,8 +21,8 @@ Every pixel is full RGB with 14-bit gamma-corrected brightness, done by the PIO 
   every Home Assistant condition (`cosmic_unicorn::draw_weather_icon`, large 12×12 animated or small 5×5)
 - animated GIFs downloaded at runtime (`cosmic_unicorn.play_gif`), scaled to fit; pictures (PNG/JPEG) via ESPHome's
   `online_image`, both pushable from Home Assistant
-- 11 built-in full-screen effects (Plasma, Fire, Lava lamp, Snow, Rain, Starfield, Stars, Game of Life, Lines,
-  Circles, Aurora), with afterglow trails, drawn with `id(unicorn).render_effect(it, index, speed)`
+- 12 built-in full-screen effects (Plasma, Fire, Lava lamp, Snow, Rain, Starfield, Stars, Game of Life, Lines,
+  Circles, Aurora, Super computer), with afterglow trails, drawn with `id(unicorn).render_effect(it, index, speed)`
 - buttons: plain `gpio` binary sensors (pins below)
 - the PIO block is picked at runtime, so it coexists with the Pico W's Wi-Fi driver (which also uses a PIO)
 
@@ -87,7 +87,7 @@ display:
 ```
 
 Index order: 0 Plasma, 1 Fire, 2 Lava lamp, 3 Snow, 4 Rain, 5 Starfield, 6 Stars, 7 Game of Life, 8 Lines,
-9 Circles, 10 Aurora (`CosmicUnicornDisplay::effect_name(i)` and `effect_count()` give names and the count).
+9 Circles, 10 Aurora, 11 Super computer (`CosmicUnicornDisplay::effect_name(i)` and `effect_count()` give names and the count).
 The optional third argument scales the speed. Effects keep their own frame buffer, so trails and afterglow work
 even if the lambda clears the screen. All per-pixel work is integer math, because the RP2040 has no FPU.
 
@@ -188,6 +188,8 @@ copy the `.uf2` onto the `RPI-RP2` drive. After that, OTA works as usual.
 
 - LED matrix driver, synth and gamma tables: [Pimoroni pimoroni-pico](https://github.com/pimoroni/pimoroni-pico), MIT.
 - `audio_i2s` PIO program: Raspberry Pi (Trading) Ltd., BSD-3-Clause.
+- Super computer effect: port of Pimoroni's "eighties super computer" example
+  ([pimoroni-pico](https://github.com/pimoroni/pimoroni-pico), MIT).
 - GIF decoder: [bitbank2/AnimatedGIF](https://github.com/bitbank2/AnimatedGIF) 2.2.0, Apache-2.0
   (vendored with a small platform-detection patch, see `components/cosmic_unicorn/LICENSE-AnimatedGIF`).
 - ESPHome integration and original proof of concept: MIT, see [LICENSE](LICENSE).
