@@ -16,6 +16,7 @@ Every pixel is full RGB with 14-bit gamma-corrected brightness, done by the PIO 
   and `type: volume`
 - speaker: `cosmic_unicorn.play_tone` / `cosmic_unicorn.stop_sound` actions (tones from Pimoroni's synth)
 - light sensor: `id(unicorn).get_light_level()` (0–4095), e.g. in a template sensor
+- auto brightness from the light sensor, on the device (see below)
 - buttons: plain `gpio` binary sensors (pins below)
 - the PIO block is picked at runtime, so it coexists with the Pico W's Wi-Fi driver (which also uses a PIO)
 
@@ -44,6 +45,30 @@ display:
       it.fill(Color(0, 0, 40));
       it.line(0, 0, 31, 31, Color(255, 0, 0));
 ```
+
+### Auto brightness
+
+```yaml
+display:
+  - platform: cosmic_unicorn
+    id: unicorn
+    auto_brightness:
+      enabled: true        # default true; toggle at runtime with id(unicorn).set_auto_brightness(bool)
+      dark_level: 25       # raw sensor reading treated as "dark"
+      bright_level: 800    # raw sensor reading treated as "bright"
+      min_brightness: 25%  # factor at dark_level
+      max_brightness: 100% # factor at bright_level
+```
+
+The sensor is sampled every 200 ms and smoothed (about 2 s), mapped logarithmically between `dark_level` and
+`bright_level`, and multiplied with the configured / light brightness. Changes under 1% are ignored, so the panel
+doesn't flicker. `id(unicorn).get_ambient_factor()` and `get_smoothed_light_level()` are there for template sensors.
+
+The on-board sensor is a plain phototransistor without calibration. On one unit it read about 21 both covered and
+in evening lamp light, and about 1600 with a phone flashlight right in front of it. Use the light level sensor from
+the example to find good levels for your room. If your unit reads inverted, set `dark_level` above `bright_level`.
+
+Global brightness is applied after gamma at 16-bit precision, so colours stay clean at low brightness.
 
 ### Actions
 
@@ -80,7 +105,7 @@ copy the `.uf2` onto the `RPI-RP2` drive. After that, OTA works as usual.
 - `components/esphome_galactic_unicorn` is the original Galactic Unicorn proof of concept by
   [hackcasual](https://github.com/hackcasual/esphome-galactic-unicorn), kept for reference. It isn't used by this
   component.
-- Built and tested against ESPHome 2026.11 (arduino-pico 6.1.1).
+- Built against ESPHome 2026.11 (arduino-pico 6.1.1) and tested on hardware (display, brightness, buttons, speaker, light sensor).
 
 ## Credits and licenses
 

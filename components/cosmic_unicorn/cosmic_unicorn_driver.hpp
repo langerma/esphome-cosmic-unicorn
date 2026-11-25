@@ -6,6 +6,7 @@
 //  - PIO block is chosen at runtime (pio0 or pio1), so it coexists with the
 //    Pico W's CYW43 Wi-Fi driver, which also uses a PIO block
 //  - init() reports failure instead of panicking
+//  - global brightness is applied after gamma at 16-bit precision
 #pragma once
 
 #include "hardware/pio.h"
@@ -63,7 +64,10 @@ class CosmicUnicorn {
   static uint audio_sm;
   static uint audio_sm_offset;
 
-  uint16_t brightness = 256;
+  float brightness = 1.0f;
+  // brightness ^ 2.2 as 16.16 fixed point, applied after gamma so dim levels
+  // keep the full 14-bit resolution instead of crushing the 8-bit input
+  uint32_t brightness_scale = 65536;
   uint16_t volume = 127;
 
   // must be aligned for 32bit dma transfer

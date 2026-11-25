@@ -36,8 +36,25 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
   void set_volume(float volume);
   float get_volume() const { return this->volume_; }
 
-  /// Raw light sensor reading (0 - 4095). Higher = brighter room.
+  /// Raw light sensor reading (0 - 4095).
   uint16_t get_light_level();
+
+  /// Auto brightness: scales the global brightness with the ambient light.
+  /// The light sensor is mapped logarithmically from dark_level..bright_level
+  /// onto min_factor..max_factor (dark_level may be above bright_level if the
+  /// sensor reads inverted).
+  void set_auto_brightness(bool enabled);
+  bool get_auto_brightness() const { return this->auto_enabled_; }
+  void set_auto_brightness_config(uint16_t dark_level, uint16_t bright_level, float min_factor, float max_factor) {
+    this->dark_level_ = dark_level;
+    this->bright_level_ = bright_level;
+    this->min_factor_ = min_factor;
+    this->max_factor_ = max_factor;
+  }
+  /// Current ambient factor (1.0 when auto brightness is off).
+  float get_ambient_factor() const { return this->auto_enabled_ ? this->ambient_factor_ : 1.0f; }
+  /// Smoothed light sensor reading used by auto brightness.
+  float get_smoothed_light_level() const { return this->smoothed_light_; }
 
   /// Play a tone on the built-in speaker. Non-blocking.
   void play_tone(float frequency, uint32_t duration_ms, ToneWaveform waveform = ToneWaveform::SQUARE);
@@ -52,6 +69,8 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
   int get_height_internal() override { return HEIGHT; }
 
   void flush_();
+  void apply_brightness_();
+  void update_ambient_();
 
   pimoroni::CosmicUnicorn unicorn_;
   // shadow framebuffer: drawing happens here, then the whole frame is pushed at once
@@ -62,6 +81,16 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
 
   float brightness_{0.5f};
   float volume_{0.5f};
+
+  bool auto_enabled_{false};
+  uint16_t dark_level_{10};
+  uint16_t bright_level_{1500};
+  float min_factor_{0.1f};
+  float max_factor_{1.0f};
+  float smoothed_light_{-1.0f};
+  float target_factor_{1.0f};   // from the latest (smoothed) reading
+  float ambient_factor_{1.0f};  // currently applied to the panel
+  uint32_t last_ambient_ms_{0};
 
   bool tone_active_{false};
   bool tone_releasing_{false};

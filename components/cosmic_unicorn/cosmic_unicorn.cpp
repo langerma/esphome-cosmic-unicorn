@@ -10,6 +10,11 @@ static const char *const TAG = "cosmic_unicorn";
 
 // release time of the tone envelope; sound is stopped after this
 static const uint16_t TONE_RELEASE_MS = 30;
+// auto brightness: sample interval and smoothing (time constant ~ interval / alpha = 2s)
+static const uint32_t AMBIENT_INTERVAL_MS = 200;
+static const float AMBIENT_ALPHA = 0.1f;
+// only re-push the frame when the factor moved by more than this
+static const float AMBIENT_HYSTERESIS = 0.01f;
 
 void CosmicUnicornDisplay::setup() {
   if (!this->unicorn_.init()) {
@@ -17,10 +22,14 @@ void CosmicUnicornDisplay::setup() {
     this->mark_failed();
     return;
   }
-  this->unicorn_.set_brightness(this->brightness_);
   this->unicorn_.set_volume(this->volume_);
-  this->unicorn_.clear();
   this->ready_ = true;
+  if (this->auto_enabled_) {
+    this->update_ambient_();
+    this->ambient_factor_ = this->target_factor_;
+  }
+  this->unicorn_.set_brightness(this->brightness_ * this->get_ambient_factor());
+  this->unicorn_.clear();
 }
 
 void CosmicUnicornDisplay::dump_config() {
@@ -29,8 +38,11 @@ void CosmicUnicornDisplay::dump_config() {
                 "  Size: %dx%d\n"
                 "  Display PIO: pio%d\n"
                 "  Brightness: %.2f\n"
-                "  Volume: %.2f",
-                WIDTH, HEIGHT, this->unicorn_.bitstream_pio_index(), this->brightness_, this->volume_);
+                "  Volume: %.2f\n"
+                "  Auto brightness: %s (dark %u, bright %u, factor %.2f-%.2f)",
+                WIDTH, HEIGHT, this->unicorn_.bitstream_pio_index(), this->brightness_, this->volume_,
+                YESNO(this->auto_enabled_), this->dark_level_, this->bright_level_, this->min_factor_,
+                this->max_factor_);
   LOG_UPDATE_INTERVAL(this);
 }
 
@@ -42,9 +54,20 @@ void CosmicUnicornDisplay::update() {
 }
 
 void CosmicUnicornDisplay::loop() {
+  const uint32_t now = millis();
+  if (this->auto_enabled_ && this->ready_ && now - this->last_ambient_ms_ >= AMBIENT_INTERVAL_MS) {
+    this->last_ambient_ms_ = now;
+    this->update_ambient_();
+    const float target = this->target_factor_;
+    const bool at_limit = target == this->min_factor_ || target == this->max_factor_;
+    if (fabsf(target - this->ambient_factor_) > AMBIENT_HYSTERESIS || (at_limit && target != this->ambient_factor_)) {
+      this->ambient_factor_ = target;
+      this->apply_brightness_();
+    }
+  }
+
   if (!this->tone_active_)
     return;
-  const uint32_t now = millis();
   if (!this->tone_releasing_ && (int32_t) (now - this->tone_until_) >= 0) {
     this->unicorn_.synth_channel(0).trigger_release();
     this->tone_releasing_ = true;
@@ -91,12 +114,46 @@ void CosmicUnicornDisplay::flush_() {
 
 void CosmicUnicornDisplay::set_brightness(float brightness) {
   this->brightness_ = clamp(brightness, 0.0f, 1.0f);
+  this->apply_brightness_();
+}
+
+void CosmicUnicornDisplay::apply_brightness_() {
   if (!this->ready_)
     return;
-  this->unicorn_.set_brightness(this->brightness_);
+  this->unicorn_.set_brightness(this->brightness_ * this->get_ambient_factor());
   // brightness is baked into the bitstream per pixel, so re-push the frame
   this->dirty_ = true;
   this->flush_();
+}
+
+void CosmicUnicornDisplay::set_auto_brightness(bool enabled) {
+  if (enabled == this->auto_enabled_)
+    return;
+  this->auto_enabled_ = enabled;
+  if (!this->ready_)
+    return;  // setup() takes the first reading once the ADC is initialised
+  if (enabled) {
+    this->smoothed_light_ = -1.0f;  // start from the current reading, not an old average
+    this->update_ambient_();
+    this->ambient_factor_ = this->target_factor_;
+  }
+  this->apply_brightness_();
+}
+
+void CosmicUnicornDisplay::update_ambient_() {
+  float raw = this->unicorn_.light();
+  if (this->smoothed_light_ < 0.0f) {
+    this->smoothed_light_ = raw;
+  } else {
+    this->smoothed_light_ += AMBIENT_ALPHA * (raw - this->smoothed_light_);
+  }
+
+  // log mapping: the eye (and this sensor) span several decades of light
+  float lo = logf(std::max<float>(this->dark_level_, 1.0f));
+  float hi = logf(std::max<float>(this->bright_level_, 1.0f));
+  float v = logf(std::max(this->smoothed_light_, 1.0f));
+  float t = (hi == lo) ? 1.0f : clamp((v - lo) / (hi - lo), 0.0f, 1.0f);
+  this->target_factor_ = this->min_factor_ + (this->max_factor_ - this->min_factor_) * t;
 }
 
 void CosmicUnicornDisplay::set_volume(float volume) {

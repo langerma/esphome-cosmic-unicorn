@@ -335,13 +335,10 @@ void CosmicUnicorn::set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
     y -= 16;
   }
 
-  r = (r * this->brightness) >> 8;
-  g = (g * this->brightness) >> 8;
-  b = (b * this->brightness) >> 8;
-
-  uint16_t gamma_r = GAMMA_14BIT[r];
-  uint16_t gamma_g = GAMMA_14BIT[g];
-  uint16_t gamma_b = GAMMA_14BIT[b];
+  // perceptual brightness: GAMMA(v * b) ~= GAMMA(v) * b^2.2, done in the 14-bit domain
+  uint16_t gamma_r = (GAMMA_14BIT[r] * this->brightness_scale) >> 16;
+  uint16_t gamma_g = (GAMMA_14BIT[g] * this->brightness_scale) >> 16;
+  uint16_t gamma_b = (GAMMA_14BIT[b] * this->brightness_scale) >> 16;
 
   // set the appropriate bits in the separate bcd frames
   for (uint8_t frame = 0; frame < BCD_FRAME_COUNT; frame++) {
@@ -362,11 +359,11 @@ void CosmicUnicorn::set_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
 void CosmicUnicorn::set_brightness(float value) {
   value = value < 0.0f ? 0.0f : value;
   value = value > 1.0f ? 1.0f : value;
-  // max is 256 since it's applied with (channel * brightness) >> 8
-  this->brightness = floor(value * 256.0f);
+  this->brightness = value;
+  this->brightness_scale = (uint32_t) (powf(value, 2.2f) * 65536.0f + 0.5f);
 }
 
-float CosmicUnicorn::get_brightness() { return this->brightness / 256.0f; }
+float CosmicUnicorn::get_brightness() { return this->brightness; }
 
 void CosmicUnicorn::set_volume(float value) {
   value = value < 0.0f ? 0.0f : value;
