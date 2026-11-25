@@ -20,6 +20,35 @@ logger:
 api:
   encryption:
     key: !secret cosmic_unicorn_api_key
+  # Push pictures and GIFs from Home Assistant:
+  #   action: esphome.cosmic_unicorn_show_image  data: {url: "http://...", seconds: 15}
+  #   action: esphome.cosmic_unicorn_show_gif    data: {url: "http://...", seconds: 15}
+  # seconds: 0 = keep showing until clear_media / the next one
+  actions:
+    - action: show_image
+      variables:
+        url: string
+        seconds: int
+      then:
+        - cosmic_unicorn.stop_gif: unicorn
+        - lambda: |-
+            id(image_seconds) = seconds;
+        - online_image.set_url:
+            id: pushed_image
+            url: !lambda return url;
+    - action: show_gif
+      variables:
+        url: string
+        seconds: int
+      then:
+        - lambda: id(image_shown) = false;
+        - cosmic_unicorn.play_gif:
+            url: !lambda return url;
+            duration: !lambda return seconds * 1000;
+    - action: clear_media
+      then:
+        - cosmic_unicorn.stop_gif: unicorn
+        - lambda: id(image_shown) = false;
 ota:
   - platform: esphome
     password: !secret cosmic_unicorn_ota_password
@@ -37,6 +66,16 @@ globals:
     type: int
     initial_value: '0'
   - id: anim_start
+    type: uint32_t
+    initial_value: '0'
+  # pushed picture: shown after download, until image_until (0 = no time limit)
+  - id: image_shown
+    type: bool
+    initial_value: 'false'
+  - id: image_seconds
+    type: int
+    initial_value: '0'
+  - id: image_until
     type: uint32_t
     initial_value: '0'
 
@@ -63,6 +102,25 @@ script:
             id(anim_start) = millis();
           }
 
+http_request:
+  timeout: 10s
+  verify_ssl: false   # not supported on RP2040; prefer plain http:// URLs on the LAN
+
+image:
+  - platform: online_image
+    id: pushed_image
+    url: "http://homeassistant.local:8123/local/placeholder.png"   # replaced by show_image
+    format: AUTO
+    type: RGB565
+    resize: 32x32
+    buffer_size: 8192   # download buffer; keeps RAM free for GIFs
+    on_download_finished:
+      - lambda: |-
+          id(image_shown) = true;
+          id(image_until) = id(image_seconds) > 0 ? millis() + id(image_seconds) * 1000 : 0;
+    on_error:
+      - logger.log: "Image download failed"
+
 font:
   - file: "gfonts://Silkscreen"
     id: pixel
@@ -73,6 +131,8 @@ display:
     id: unicorn
     update_interval: 50ms   # 20 fps; the lambda runs on every update
     brightness: 0.4
+    gif:
+      max_size: 65536   # bytes; larger GIFs are rejected
     auto_brightness:
       dark_level: 25
       bright_level: 800
@@ -138,11 +198,24 @@ display:
         return;
       }
 
+      // ---- pushed GIF / picture take over the screen while shown ----
+      bool media = id(unicorn).render_gif(it);
+      if (!media && id(image_shown)) {
+        if (id(image_until) != 0 && (int32_t) (ms - id(image_until)) >= 0) {
+          id(image_shown) = false;
+        } else {
+          it.image(0, 0, id(pushed_image));
+          media = true;
+        }
+      }
+
       // ---- mode: clock or one of the built-in effects ----
       auto mode_idx = id(display_mode).active_index();
       const int mode = mode_idx.has_value() ? (int) *mode_idx : 0;
       auto now = id(ha_time).now();
-      if (mode > 0) {
+      if (media) {
+        // nothing else underneath
+      } else if (mode > 0) {
         id(unicorn).render_effect(it, mode - 1, id(effect_speed).state);
       } else if (!now.is_valid()) {
         it.print(16, 16, id(pixel), Color(80, 80, 80), TextAlign::CENTER, "...");

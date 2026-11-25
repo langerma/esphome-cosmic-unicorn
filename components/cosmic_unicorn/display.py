@@ -1,9 +1,14 @@
 import esphome.codegen as cg
+from esphome.components.http_request import HttpRequestComponent
 from esphome.components import display
 import esphome.config_validation as cv
 from esphome.const import CONF_BRIGHTNESS, CONF_ID, CONF_LAMBDA, CONF_PAGES, CONF_VOLUME
 
-from . import CosmicUnicornDisplay
+from . import CosmicUnicornDisplay, GifPlayer
+
+CONF_GIF = "gif"
+CONF_MAX_SIZE = "max_size"
+CONF_HTTP_REQUEST_ID = "http_request_id"
 
 CONF_AUTO_BRIGHTNESS = "auto_brightness"
 CONF_DARK_LEVEL = "dark_level"
@@ -33,6 +38,16 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_BRIGHTNESS, default=0.5): cv.percentage,
             cv.Optional(CONF_VOLUME, default=0.5): cv.percentage,
             cv.Optional(CONF_AUTO_BRIGHTNESS): AUTO_BRIGHTNESS_SCHEMA,
+            # enables cosmic_unicorn.play_gif; needs an http_request: component
+            cv.Optional(CONF_GIF): cv.Schema(
+                {
+                    cv.GenerateID(): cv.declare_id(GifPlayer),
+                    cv.GenerateID(CONF_HTTP_REQUEST_ID): cv.use_id(HttpRequestComponent),
+                    cv.Optional(CONF_MAX_SIZE, default=65536): cv.int_range(
+                        min=1024, max=131072
+                    ),
+                }
+            ),
         }
     ).extend(cv.polling_component_schema("50ms")),
     cv.has_at_most_one_key(CONF_PAGES, CONF_LAMBDA),
@@ -55,4 +70,11 @@ async def to_code(config):
             )
         )
         cg.add(var.set_auto_brightness(auto[CONF_ENABLED]))
+    if (gif := config.get(CONF_GIF)) is not None:
+        cg.add_define("USE_COSMIC_UNICORN_GIF")
+        player = cg.new_Pvariable(gif[CONF_ID])
+        http = await cg.get_variable(gif[CONF_HTTP_REQUEST_ID])
+        cg.add(player.set_http(http))
+        cg.add(player.set_max_size(gif[CONF_MAX_SIZE]))
+        cg.add(var.set_gif_player(player))
     await display.add_writer(var, config)
