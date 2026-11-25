@@ -24,6 +24,9 @@ api:
   #   action: esphome.cosmic_unicorn_show_image  data: {url: "http://...", seconds: 15}
   #   action: esphome.cosmic_unicorn_show_gif    data: {url: "http://...", seconds: 15}
   # seconds: 0 = keep showing until clear_media / the next one
+  on_client_connected:
+    - delay: 10s
+    - script.execute: fetch_forecast
   actions:
     - action: show_image
       variables:
@@ -78,8 +81,44 @@ globals:
   - id: image_until
     type: uint32_t
     initial_value: '0'
+  # daily forecast as "condition,high,low;..." (today first), filled by fetch_forecast
+  - id: wx_forecast
+    type: std::string
+    initial_value: '""'
 
 script:
+  # Ask Home Assistant for the daily forecast (needs "Allow the device to perform
+  # Home Assistant actions" in the ESPHome integration options for this device).
+  - id: fetch_forecast
+    mode: single
+    then:
+      - homeassistant.action:
+          action: weather.get_forecasts
+          data:
+            entity_id: weather.home
+            type: daily
+          capture_response: true
+          on_success:
+            - lambda: |-
+                JsonObjectConst root = response;
+                if (root["response"].is<JsonObjectConst>()) root = root["response"];
+                if (root["weather.home"].is<JsonObjectConst>()) root = root["weather.home"];
+                std::string out;
+                int n = 0;
+                for (JsonObjectConst f : root["forecast"].as<JsonArrayConst>()) {
+                  if (n == 3) break;
+                  char b[48];
+                  snprintf(b, sizeof(b), "%s%s,%d,%d", n ? ";" : "", (const char *) (f["condition"] | "unknown"),
+                           (int) lroundf(f["temperature"] | 0.0f), (int) lroundf(f["templow"] | 0.0f));
+                  out += b;
+                  n++;
+                }
+                if (n > 0) id(wx_forecast) = out;
+                ESP_LOGD("weather", "forecast: %s", out.c_str());
+          on_error:
+            - logger.log:
+                format: "Forecast request failed: %s"
+                args: [error.c_str()]
   - id: play_anim
     mode: restart
     parameters:
@@ -120,6 +159,17 @@ image:
           id(image_until) = id(image_seconds) > 0 ? millis() + id(image_seconds) * 1000 : 0;
     on_error:
       - logger.log: "Image download failed"
+
+interval:
+  - interval: 30min
+    then:
+      - script.execute: fetch_forecast
+
+text_sensor:
+  - platform: homeassistant
+    id: wx_condition
+    entity_id: weather.home
+    internal: true
 
 font:
   - file: "gfonts://Silkscreen"
@@ -215,8 +265,51 @@ display:
       auto now = id(ha_time).now();
       if (media) {
         // nothing else underneath
-      } else if (mode > 0) {
-        id(unicorn).render_effect(it, mode - 1, id(effect_speed).state);
+      } else if (mode > 1) {
+        id(unicorn).render_effect(it, mode - 2, id(effect_speed).state);
+      } else if (mode == 1 && now.is_valid()) {
+        // ---- weather face: time, current weather, next two days ----
+        using namespace cosmic_unicorn;
+        static const char *const DAYS[] = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"};
+        const Color dim(70, 80, 110), white(230, 235, 255), warm(255, 150, 60), cold(80, 160, 255);
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%02d:%02d", now.hour, now.minute);
+        draw_text(it, (32 - text_width(buf)) / 2, 0, buf, white);
+
+        draw_weather_icon(it, id(wx_condition).state.c_str(), 0, 6, 12);
+        const float cur = id(wx_temperature).state;
+        if (!std::isnan(cur)) {
+          const int t = (int) lroundf(cur);
+          snprintf(buf, sizeof(buf), "%d", t);
+          const int scale = text_width(buf, 2) + 4 <= 19 ? 2 : 1;
+          const int tx = 32 - (text_width(buf, scale) + 4), ty = scale == 2 ? 7 : 10;
+          const int end = draw_text(it, tx, ty, buf, t <= 0 ? cold : white, scale);
+          draw_text(it, end + 2, ty, "\xb0", dim);
+        }
+        it.horizontal_line(0, 19, 32, dim);
+
+        // next two days: day, icon, high, low (day name dropped if the numbers need the room)
+        const std::string &fc = id(wx_forecast);
+        char cond[24], hs[8], ls[8];
+        int hi, lo, row = 0;
+        size_t pos = fc.find(';');  // skip today
+        while (pos != std::string::npos && row < 2) {
+          if (sscanf(fc.c_str() + pos + 1, "%23[^,],%d,%d", cond, &hi, &lo) == 3) {
+            const int y = 21 + row * 6;
+            snprintf(hs, sizeof(hs), "%d", hi);
+            snprintf(ls, sizeof(ls), "%d", lo);
+            const int lx = 32 - text_width(ls);
+            int hx = lx - 3 - text_width(hs);
+            if (hx < 14 && hx + 1 >= 14) hx++;
+            const bool with_day = hx >= 14;
+            if (with_day) draw_text(it, 0, y, DAYS[(now.day_of_week + row) % 7], dim);  // day_of_week: 1 = Sunday
+            draw_weather_icon(it, cond, with_day ? 8 : 0, y, 5);
+            draw_text(it, hx, y, hs, warm);
+            draw_text(it, lx, y, ls, cold);
+            row++;
+          }
+          pos = fc.find(';', pos + 1);
+        }
       } else if (!now.is_valid()) {
         it.print(16, 16, id(pixel), Color(80, 80, 80), TextAlign::CENTER, "...");
       } else {
@@ -304,9 +397,10 @@ select:
     icon: mdi:animation-play
     optimistic: true
     restore_value: true
-    # order matters: index 0 is the clock, the rest map to the component's effects
+    # order matters: 0 clock, 1 weather, from 2 on the component's effects
     options:
       - Clock
+      - Weather
       - Plasma
       - Fire
       - Lava lamp
@@ -403,6 +497,11 @@ number:
                 waveform: sine
 
 sensor:
+  - platform: homeassistant
+    id: wx_temperature
+    entity_id: weather.home
+    attribute: temperature
+    internal: true
   - platform: template
     name: Light level
     unit_of_measurement: "%"

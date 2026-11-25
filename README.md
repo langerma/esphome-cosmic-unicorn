@@ -17,6 +17,8 @@ Every pixel is full RGB with 14-bit gamma-corrected brightness, done by the PIO 
 - speaker: `cosmic_unicorn.play_tone` / `cosmic_unicorn.stop_sound` actions (tones from Pimoroni's synth)
 - light sensor: `id(unicorn).get_light_level()` (0–4095), e.g. in a template sensor
 - auto brightness from the light sensor, on the device (see below)
+- small drawing helpers: a crisp 3×5 pixel font (`cosmic_unicorn::draw_text`, `text_width`) and weather icons for
+  every Home Assistant condition (`cosmic_unicorn::draw_weather_icon`, large 12×12 animated or small 5×5)
 - animated GIFs downloaded at runtime (`cosmic_unicorn.play_gif`), scaled to fit; pictures (PNG/JPEG) via ESPHome's
   `online_image`, both pushable from Home Assistant
 - 11 built-in full-screen effects (Plasma, Fire, Lava lamp, Snow, Rain, Starfield, Stars, Game of Life, Lines,
@@ -92,6 +94,19 @@ even if the lambda clears the screen. All per-pixel work is integer math, becaus
 [`example.yaml`](example.yaml) puts the clock and all effects into a **Mode** select, adds an **Effect speed** slider,
 and gives every button a short animation (B/C switch modes, brightness and volume show a level bar). Which
 animation A–D play is configurable from Home Assistant ("Button X animation" config selects).
+
+### Weather face
+
+[`example.yaml`](example.yaml) has a **Weather** mode: time, the current condition as a large animated icon, the current
+temperature, and the next two days (weekday, icon, high, low). The current values come from `weather.home`; the forecast
+is fetched by the device itself every 30 minutes with `weather.get_forecasts` (`homeassistant.action` with
+`capture_response`), so no template sensor is needed. This requires **"Allow the device to perform Home Assistant
+actions"** in the ESPHome integration options for the device.
+
+```cpp
+cosmic_unicorn::draw_text(it, 0, 0, "23:41", Color(255, 255, 255));        // 3x5 font, optional scale
+cosmic_unicorn::draw_weather_icon(it, "partlycloudy", 0, 6, 12);           // 12 = large animated, 5 = small
+```
 
 ### GIFs and pictures from Home Assistant
 
