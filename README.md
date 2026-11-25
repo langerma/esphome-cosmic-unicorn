@@ -17,6 +17,8 @@ Every pixel is full RGB with 14-bit gamma-corrected brightness, done by the PIO 
 - speaker: `cosmic_unicorn.play_tone` / `cosmic_unicorn.stop_sound` actions (tones from Pimoroni's synth)
 - light sensor: `id(unicorn).get_light_level()` (0–4095), e.g. in a template sensor
 - auto brightness from the light sensor, on the device (see below)
+- animated GIFs downloaded at runtime (`cosmic_unicorn.play_gif`), scaled to fit; pictures (PNG/JPEG) via ESPHome's
+  `online_image`, both pushable from Home Assistant
 - 11 built-in full-screen effects (Plasma, Fire, Lava lamp, Snow, Rain, Starfield, Stars, Game of Life, Lines,
   Circles, Aurora), with afterglow trails, drawn with `id(unicorn).render_effect(it, index, speed)`
 - buttons: plain `gpio` binary sensors (pins below)
@@ -91,6 +93,45 @@ even if the lambda clears the screen. All per-pixel work is integer math, becaus
 and gives every button a short animation (B/C switch modes, brightness and volume show a level bar). Which
 animation A–D play is configurable from Home Assistant ("Button X animation" config selects).
 
+### GIFs and pictures from Home Assistant
+
+```yaml
+http_request:
+  verify_ssl: false     # required on RP2040
+
+display:
+  - platform: cosmic_unicorn
+    id: unicorn
+    gif:
+      max_size: 65536   # bytes, the whole GIF is held in RAM
+    lambda: |-
+      if (id(unicorn).render_gif(it)) return;   // a GIF is playing
+      // ... normal content
+```
+
+`cosmic_unicorn.play_gif` (`url`, optional `duration`, 0 = loop until `cosmic_unicorn.stop_gif`) downloads the GIF and
+plays it with its own frame timing. Any size works as long as the file fits in `max_size`: it is scaled to 32×32
+keeping the aspect ratio. Pictures use ESPHome's `image: platform: online_image` with `format: AUTO`.
+
+[`example.yaml`](example.yaml) exposes three Home Assistant actions:
+
+```yaml
+action: esphome.cosmic_unicorn_show_gif
+data:
+  url: https://raw.githubusercontent.com/langerma/esphome-cosmic-unicorn/main/examples/demo.gif
+  seconds: 15        # 0 = until clear_media or the next picture/GIF
+---
+action: esphome.cosmic_unicorn_show_image
+data:
+  url: http://192.168.1.10:8123/local/picture.png
+  seconds: 15
+---
+action: esphome.cosmic_unicorn_clear_media
+```
+
+Files in Home Assistant's `config/www/` folder are served at `http://<ha-ip>:8123/local/`. Plain `http://` on the
+LAN is the most reliable; HTTPS works but without certificate checks.
+
 ### Actions
 
 ```yaml
@@ -132,4 +173,6 @@ copy the `.uf2` onto the `RPI-RP2` drive. After that, OTA works as usual.
 
 - LED matrix driver, synth and gamma tables: [Pimoroni pimoroni-pico](https://github.com/pimoroni/pimoroni-pico), MIT.
 - `audio_i2s` PIO program: Raspberry Pi (Trading) Ltd., BSD-3-Clause.
+- GIF decoder: [bitbank2/AnimatedGIF](https://github.com/bitbank2/AnimatedGIF) 2.2.0, Apache-2.0
+  (vendored with a small platform-detection patch, see `components/cosmic_unicorn/LICENSE-AnimatedGIF`).
 - ESPHome integration and original proof of concept: MIT, see [LICENSE](LICENSE).

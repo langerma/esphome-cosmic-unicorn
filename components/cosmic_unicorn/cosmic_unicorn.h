@@ -1,5 +1,7 @@
 #pragma once
 
+#include "esphome/core/defines.h"
+
 #ifdef USE_RP2
 
 #include "esphome/core/automation.h"
@@ -9,6 +11,7 @@
 
 #include "cosmic_unicorn_driver.hpp"
 #include "cosmic_unicorn_effects.h"
+#include "cosmic_unicorn_gif.h"
 
 namespace esphome::cosmic_unicorn {
 
@@ -70,6 +73,16 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
   static size_t effect_count() { return EffectRenderer::effect_count(); }
   static const char *effect_name(size_t effect) { return EffectRenderer::effect_name(effect); }
 
+#ifdef USE_COSMIC_UNICORN_GIF
+  void set_gif_player(GifPlayer *player) { this->gif_ = player; }
+  /// Download a GIF and play it (blocks during the download). duration_ms 0 = until stopped.
+  bool play_gif(const std::string &url, uint32_t duration_ms = 0) { return this->gif_->play(url, duration_ms); }
+  void stop_gif() { this->gif_->stop(); }
+  bool is_gif_playing() const { return this->gif_->is_playing(); }
+  /// Draw the current GIF frame; returns false (and draws nothing) if no GIF is playing.
+  bool render_gif(display::Display &it) { return this->gif_->render(it); }
+#endif
+
   /// Read a button directly (true = pressed). Pin numbers as in pimoroni::CosmicUnicorn::SWITCH_*.
   bool is_pressed(uint8_t pin) { return this->unicorn_.is_pressed(pin); }
 
@@ -84,6 +97,9 @@ class CosmicUnicornDisplay : public display::DisplayBuffer {
 
   pimoroni::CosmicUnicorn unicorn_;
   EffectRenderer effects_;
+#ifdef USE_COSMIC_UNICORN_GIF
+  GifPlayer *gif_{nullptr};
+#endif
   // shadow framebuffer: drawing happens here, then the whole frame is pushed at once
   // so the panel never shows a half-drawn (e.g. just cleared) frame
   uint8_t frame_[HEIGHT][WIDTH][3]{};
@@ -131,6 +147,22 @@ template<typename... Ts> class PlayToneAction : public Action<Ts...>, public Par
  protected:
   ToneWaveform waveform_{ToneWaveform::SQUARE};
 };
+
+#ifdef USE_COSMIC_UNICORN_GIF
+template<typename... Ts> class PlayGifAction : public Action<Ts...>, public Parented<CosmicUnicornDisplay> {
+ public:
+  TEMPLATABLE_VALUE(std::string, url)
+  TEMPLATABLE_VALUE(uint32_t, duration)
+  void play(const Ts &...x) override {
+    this->parent_->play_gif(this->url_.value(x...), this->duration_.value(x...));
+  }
+};
+
+template<typename... Ts> class StopGifAction : public Action<Ts...>, public Parented<CosmicUnicornDisplay> {
+ public:
+  void play(const Ts &...x) override { this->parent_->stop_gif(); }
+};
+#endif
 
 template<typename... Ts> class StopSoundAction : public Action<Ts...>, public Parented<CosmicUnicornDisplay> {
  public:
