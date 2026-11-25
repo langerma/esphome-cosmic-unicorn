@@ -1,0 +1,130 @@
+# Example config for a Pimoroni Cosmic Unicorn (Pico W) running ESPHome.
+# First flash: hold BOOTSEL, plug in USB, copy the .uf2 from the ESPHome
+# dashboard ("Download" -> "UF2") onto the RPI-RP2 drive. After that: OTA.
+
+esphome:
+  name: cosmic-unicorn
+  friendly_name: Cosmic Unicorn
+
+rp2:
+  board: rpipicow
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/langerma/esphome-cosmic-unicorn
+      ref: main
+    components: [cosmic_unicorn]
+
+logger:
+api:
+  encryption:
+    key: !secret cosmic_unicorn_api_key
+ota:
+  - platform: esphome
+    password: !secret cosmic_unicorn_ota_password
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+font:
+  - file: "gfonts://Silkscreen"
+    id: pixel
+    size: 8
+
+display:
+  - platform: cosmic_unicorn
+    id: unicorn
+    update_interval: 50ms   # 20 fps; the lambda runs on every update
+    brightness: 0.4
+    lambda: |-
+      auto now = id(ha_time).now();
+      if (!now.is_valid()) {
+        it.print(16, 16, id(pixel), Color(80, 80, 80), TextAlign::CENTER, "...");
+        return;
+      }
+      // hour on top, minute below, colour slowly cycling
+      uint32_t t = millis() / 40;
+      Color c = Color(128 + 127 * sinf(t * 0.02f), 128 + 127 * sinf(t * 0.02f + 2.1f), 128 + 127 * sinf(t * 0.02f + 4.2f));
+      it.strftime(16, 2, id(pixel), c, TextAlign::TOP_CENTER, "%H", now);
+      it.strftime(16, 16, id(pixel), c, TextAlign::TOP_CENTER, "%M", now);
+      // seconds as a dot running along the bottom row
+      it.draw_pixel_at(now.second * 32 / 60, 31, Color(255, 255, 255));
+
+output:
+  - platform: cosmic_unicorn
+    id: unicorn_brightness
+    type: brightness
+  - platform: cosmic_unicorn
+    id: unicorn_volume
+    type: volume
+
+light:
+  - platform: monochromatic
+    id: matrix_light
+    name: Matrix
+    output: unicorn_brightness
+    gamma_correct: 1.0   # the driver already applies gamma per pixel
+    default_transition_length: 300ms
+    restore_mode: RESTORE_DEFAULT_ON
+
+number:
+  - platform: template
+    name: Volume
+    min_value: 0
+    max_value: 100
+    step: 5
+    unit_of_measurement: "%"
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    on_value:
+      - output.set_level:
+          id: unicorn_volume
+          level: !lambda return x / 100.0;
+
+sensor:
+  - platform: template
+    name: Light level
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: return id(unicorn).get_light_level() * 100.0f / 4095.0f;
+
+binary_sensor:
+  - platform: gpio
+    name: Button A
+    pin: { number: 0, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - cosmic_unicorn.play_tone:
+          frequency: 880
+          duration: 120ms
+          waveform: sine
+  - platform: gpio
+    name: Button B
+    pin: { number: 1, inverted: true, mode: { input: true, pullup: true } }
+  - platform: gpio
+    name: Button C
+    pin: { number: 3, inverted: true, mode: { input: true, pullup: true } }
+  - platform: gpio
+    name: Button D
+    pin: { number: 6, inverted: true, mode: { input: true, pullup: true } }
+  - platform: gpio
+    name: Button Sleep
+    pin: { number: 27, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - light.toggle: matrix_light
+  - platform: gpio
+    id: btn_brightness_up
+    pin: { number: 21, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - light.dim_relative: { id: matrix_light, relative_brightness: 10% }
+  - platform: gpio
+    id: btn_brightness_down
+    pin: { number: 26, inverted: true, mode: { input: true, pullup: true } }
+    on_press:
+      - light.dim_relative: { id: matrix_light, relative_brightness: -10% }
